@@ -1,0 +1,25 @@
+# 이미지에 넣지 않을 파일 목록
+# 비밀값과 로컬 환경
+.env
+.venv/
+# 저장소·도구 설정
+.git/
+.github/
+.claude/
+.gitignore
+.gcloudignore
+# 캐시
+__pycache__/
+*.pyc
+.pytest_cache/
+# 실행에 필요 없는 폴더와 파일
+docs/
+hello/
+scripts/
+starter/
+supabase/
+tests/
+data/eval/
+data/samples/
+requirements-dev.txt
+pytest.ini
