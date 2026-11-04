@@ -21,8 +21,6 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
-    env:
-      IMAGE: ${{ vars.AR_REPO }}/friend-agent:${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
 
@@ -34,10 +32,32 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v3
 
       - name: 이미지 만들기와 올리기
+        if: github.ref_name != 'main'
         run: |
+          IMAGE="${{ vars.AR_REPO }}/friend-agent:${{ github.sha }}"
           gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
           docker build --tag "$IMAGE" .
           docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "COMMIT=${{ github.sha }}" >> "$GITHUB_ENV"
+
+      # main 에서는 새로 만들지 않고, staging 에서 검증한 이미지를 다이제스트 그대로 가져온다
+      - name: staging 이미지 가져오기
+        if: github.ref_name == 'main'
+        run: |
+          REV=$(gcloud run services describe friend-agent-staging --region us-central1 --project "${{ vars.GCP_PROJECT_ID }}" \
+            --format=json | jq -r '.status.traffic | max_by(.percent) | .revisionName')
+          IMAGE=$(gcloud run revisions describe "$REV" --region us-central1 --project "${{ vars.GCP_PROJECT_ID }}" \
+            --format='value(status.imageDigest)')
+          COMMIT=$(gcloud run revisions describe "$REV" --region us-central1 --project "${{ vars.GCP_PROJECT_ID }}" \
+            --format=json | jq -r '.spec.containers[0].env[] | select(.name == "COMMIT_SHA") | .value')
+          if [ -z "$IMAGE" ] || [ -z "$COMMIT" ]; then
+            echo "staging 리비전 $REV 에서 이미지 다이제스트나 COMMIT_SHA 를 찾지 못했습니다." >&2
+            exit 1
+          fi
+          echo "staging 리비전 $REV 의 이미지를 production 에 배포합니다: $IMAGE (커밋 $COMMIT)"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "COMMIT=$COMMIT" >> "$GITHUB_ENV"
 
       - id: deploy
         uses: google-github-actions/deploy-cloudrun@v3
@@ -47,7 +67,7 @@ jobs:
           project_id: ${{ vars.GCP_PROJECT_ID }}
           image: ${{ env.IMAGE }}
           env_vars: |
-            COMMIT_SHA=${{ github.sha }}
+            COMMIT_SHA=${{ env.COMMIT }}
             ENV=${{ vars.ENV }}
           flags: --service-account=${{ vars.RUNTIME_SA }}
 
